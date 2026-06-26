@@ -1,7 +1,7 @@
 # Geographic n-gram interpolation for zero-shot dialect ID
 
 Code behind *"Can Geography Stand In for Labeled Data in Arabic Dialect
-Identification?"* — see [`paper2/`](paper2/) for the full writeup.
+Identification?"*.
 
 **Idea:** for a dialect/variety with no labeled data, build its language
 model as a distance-weighted mixture of its `k` nearest *known* varieties
@@ -24,7 +24,7 @@ threshold lets you screen a new language family in advance.
 - `eval_lince.py` — code-switching evaluation on LinCE (token-level, region-conditioned Viterbi decoding).
 - `viterbi.py` — token-level decoder with region-conditioned transition costs, for code-switched text.
 - `bootstrap.py` — self-training expansion for low-resource cells.
-- `analysis/` — the six-family stress test: `cctld_loo.py` (per-language leave-one-out sweep), `correlation_plot.py` (geography vs. similarity correlation, `paper2/figures/corr_plot.pdf`), `annotation_curve.py` (labels-needed-to-beat-zero-shot curve).
+- `analysis/` — the six-family stress test: `cctld_loo.py` (per-language leave-one-out sweep), `correlation_plot.py` (geography vs. similarity correlation), `annotation_curve.py` (labels-needed-to-beat-zero-shot curve).
 - `baselines/` — fastText / GlotLID zero-shot baselines.
 - `data/` — dataset loaders (NADI, MADAR, DSL-TL, Arap-Tweet, CC-TLD mc4, LinCE), with download instructions in each module's docstring. Datasets themselves are not committed; these loaders fetch/read them locally into `datasets/`.
 
@@ -76,7 +76,4 @@ python -m analysis.annotation_curve
 - **Country ≠ dialect.** Borders cut through dialect continua (Levantine, Maghrebi, Peninsular Arabic). Evaluate on speaker-held-out splits, not document splits.
 - **Twitter geolocation is biased.** Geo-labeled tweets model "what people in country X tweet about" as much as dialect; diaspora users tweet in their heritage dialect from abroad.
 - **CC-TLD is a noisy geographic label.** A `.de` domain doesn't guarantee native German content.
-- **Geography is a coarse proxy, not a causal one.** Contact history can override raw distance (e.g., Lebanon vs. Palestine in the Arabic results) — see the paper's Discussion and Limitations sections for the full list of caveats.
-
-See [`paper2/main.tex`](paper2/main.tex) for the full writeup, including the
-cross-language correlation analysis and all per-country tables.
+- **Geography is a coarse proxy, not a causal one.** Contact history can override raw distance (e.g., Lebanon vs. Palestine in the Arabic results).
