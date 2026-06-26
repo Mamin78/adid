@@ -1,0 +1,29 @@
+# OS junk
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Large/restricted data and trained models (re-download/re-train via data/*.py and train_geo.py)
+/models/
+/datasets/
+
+# LaTeX build artifacts
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.blg
+paper/*.bbl
+paper/*.fls
+paper/*.fdb_latexmk
+paper/missfont.log
+paper2/*.aux
+paper2/*.log
+paper2/*.out
+paper2/*.blg
+paper2/*.bbl
+paper2/*.fls
+paper2/*.fdb_latexmk
+paper2/missfont.log
+paper2/Archive.zip

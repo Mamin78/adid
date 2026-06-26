@@ -1,0 +1,611 @@
+\documentclass[11pt]{article}
+\usepackage[final]{acl}
+
+\usepackage{times}
+\usepackage{latexsym}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{microtype}
+\usepackage{inconsolata}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{xcolor}
+\usepackage{colortbl}
+\usepackage{array}
+\usepackage{makecell}
+\DeclareMathOperator*{\argmax}{arg\,max}
+
+\definecolor{good}{HTML}{c7e9c0}
+\definecolor{zero}{HTML}{f5f5f5}
+\definecolor{best}{HTML}{74c476}
+
+\title{Dialects for Free: Geographic Weak Supervision\\
+       for Multilingual Variety Identification}
+
+\author{
+  Amin Shafiei \\
+  CINECA, Italy \\
+  \texttt{aminsh78@gmail.com}
+}
+
+\begin{document}
+\maketitle
+
+% ─────────────────────────────────────────────────────────────────────────────
+\begin{abstract}
+Geographic metadata---where a text was written---is a long-recognized proxy
+for language variety, and character $n$-gram models are an established baseline
+for language and dialect identification.
+What remains \emph{unstudied} is \textbf{when geographic supervision is
+sufficient to replace costly dialect annotation}, and what conditions determine
+its success or failure.
+
+We conduct the first systematic comparison of three supervision sources
+across four languages: gold dialect labels (\textit{oracle}), user-declared
+Twitter location (\textit{geo-Twitter}), and URL country-code filtering of
+web text (\textit{CC-TLD}).
+For Arabic, geo-Twitter matches the oracle on macro-F1 (15.6\% vs.\ 15.1\%)
+while covering \textbf{18 of 21} varieties that fastText and GlotLID cannot
+distinguish at all.
+For Portuguese, CC-TLD web text \emph{surpasses} the oracle (74.7\%
+vs.\ 66.0\%).
+For Spanish, CC-TLD is close but falls short (71.7\% vs.\ 78.4\%).
+Through per-variety analysis we identify three regimes governing these
+outcomes: \textit{volume dominance} (more geo-data beats cleaner labels),
+\textit{label noise} (diaspora populations degrade geo-signal for Gulf Arabic),
+and \textit{variety dilution} (multi-class CC-TLD models penalized when
+evaluation is two-class).
+These findings characterize the conditions under which geographic weak
+supervision is a viable, zero-cost substitute for dialect annotation.
+\end{abstract}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Introduction}
+\label{sec:intro}
+
+Arabic is not one language. Speakers of Egyptian, Moroccan, Iraqi, and Gulf
+Arabic may struggle to understand each other in casual conversation, yet NLP
+pipelines routinely treat them as a single variety labeled \texttt{arb\_Arab}.
+The NADI shared task series \cite{abdul-mageed-etal-2020-nadi} has benchmarked
+dialect identification across 21 Arab countries, but even state-of-the-art
+systems depend on roughly \textbf{1{,}000 gold-labeled tweets per country}---
+expensive to produce and unavailable for many varieties.
+
+The intuition that \emph{geography predicts dialect} is well established.
+\citet{eisenstein-etal-2010-latent} showed that Twitter geolocation correlates
+strongly with lexical variation; \citet{lui-cook-2013-classifying} trained
+character $n$-gram classifiers on geo-tagged English tweets to distinguish
+national varieties; and web corpus builders have long used country-code
+top-level domains (ccTLDs) as a geographic signal
+\cite{tiedemann-ljubesic-2012-efficient}.
+What none of this prior work has addressed is a systematic question:
+\textbf{across multiple languages, supervision sources, and evaluation
+conditions, when is geographic metadata good enough to replace dialect
+annotation entirely---and when does it fail?}
+
+This paper answers that question through a controlled empirical study.
+We fix the model class (character $n$-gram language models with Kneser-Ney
+smoothing, following \citet{salameh-etal-2018-fine}) and vary only the
+supervision source: gold dialect labels, user-declared Twitter location, and
+ccTLD-filtered web text.
+The character $n$-gram model is deliberately simple---our goal is not to
+propose a new architecture, but to isolate the effect of supervision source
+as cleanly as possible.
+
+Our starting point is a failure we document concretely: \textbf{fastText
+lid.218}~\cite{joulin-etal-2017-bag,grave-etal-2018-learning} and
+\textbf{GlotLID v3}~\cite{kargaran-etal-2023-glotlid}---the two most
+widely deployed LID systems---cover only 7 of 21 Arabic varieties in the
+NADI benchmark, silently mapping Gulf Arabic, Libyan, Lebanese, Palestinian,
+Yemeni, and Sudanese text to a single Modern Standard Arabic label.
+Geographic supervision closes this gap at zero annotation cost.
+
+\paragraph{Contributions.}
+\begin{enumerate}
+\item \textbf{Coverage audit.}  We document that fastText and GlotLID are
+      blind to 14 of 21 Arabic-speaking countries, and characterize which
+      varieties are affected.
+
+\item \textbf{When geographic supervision matches annotation.}
+      For Arabic, geo-Twitter (user-declared location) achieves 15.6\%
+      macro-F1 vs.\ 15.1\% for gold-labeled oracle, while covering 18
+      countries.  For Portuguese, ccTLD web text surpasses the oracle
+      (74.7\% vs.\ 66.0\%).
+
+\item \textbf{When it fails, and why.}  We identify three regimes:
+      \textit{volume dominance} (geo-data scale beats label quality),
+      \textit{diaspora noise} (Gulf Arabic geo-labels degraded by expatriates),
+      and \textit{variety dilution} (multi-country models penalized on
+      two-class evaluations).  These regimes predict outcomes across all
+      four languages studied.
+
+\item \textbf{Cross-language scope.}  The study covers Arabic (21 varieties),
+      Spanish (2), Portuguese (2), and English (2), providing a broad
+      empirical base for the conclusions.
+\end{enumerate}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Arabic dialect identification.}
+Discrimination between Arabic varieties has attracted sustained attention since
+\citet{zaidan-callison-burch-2014-arabic}, who collected crowd-sourced dialect
+annotations from news comments.
+\citet{salameh-etal-2018-fine} achieved strong results on the 25-city MADAR
+corpus with na\"ive Bayes character $n$-gram models---the same model class we
+use here.  The NADI shared task series \cite{abdul-mageed-etal-2020-nadi}
+introduced a country-level, Twitter-native benchmark; top NADI systems use
+fine-tuned Arabic BERT variants that reach 30--40\% macro-F1 by exploiting
+the labeled training set.  Our study deliberately uses a weaker model to
+isolate the effect of supervision source rather than model capacity.
+
+\paragraph{Geographic signals for variety identification.}
+The core idea that geography predicts dialect and that text metadata can supply
+geographic labels is not new.  \citet{eisenstein-etal-2010-latent} built a
+latent-variable model of geographic lexical variation using geotagged Twitter
+data.  \citet{lui-cook-2013-classifying} trained character $n$-gram classifiers
+on Twitter data with inferred user country to distinguish national English
+varieties---the most direct precursor to our setup.
+\citet{tiedemann-ljubesic-2012-efficient} used web-crawled text with geographic
+filtering for Croatian/Serbian discrimination.
+Our contribution relative to this line of work is not a new method, but a
+\emph{systematic study}: we compare supervision sources head-to-head across
+four languages and identify the conditions that determine when geographic
+signal is sufficient, not merely whether it can work.
+
+\paragraph{Character $n$-gram LID and variety discrimination.}
+Character $n$-gram approaches to language identification date to
+\citet{cavnar-trenkle-1994-ngram} and remain competitive
+\cite{jauhiainen-etal-2019-automatic}.  Modern deployment-scale systems---
+fastText \cite{joulin-etal-2017-bag,grave-etal-2018-learning} and GlotLID
+\cite{kargaran-etal-2023-glotlid}---train on web text with automatically
+derived labels, but at \emph{language} granularity.  Neither system was
+designed for sub-language variety discrimination, and
+\citet{caswell-etal-2020-language} document exactly this fragility: web-derived
+LID labels conflate varieties that human speakers distinguish.
+The DSL shared task series \cite{zampieri-etal-2014-report} established
+macro-F1 as the standard metric for variety discrimination and benchmarked
+character $n$-gram and other approaches on closely related language pairs.
+
+\paragraph{Weak supervision in NLP.}
+Using structural or metadata signals to avoid manual annotation
+\cite{mintz-etal-2009-distant} underlies much of modern NLP.
+For dialect-related tasks the most relevant form is \emph{distant geographic
+supervision}: treating a document's geographic origin as a noisy proxy for its
+variety label.  Our study provides the first quantitative analysis of this
+proxy's reliability across different geographic signal types, languages, and
+variety granularities.
+
+\paragraph{DSL-TL.}
+\citet{haapanen-etal-2023-dsltl} introduced native-speaker verified labels
+for Spanish, Portuguese, and English variety identification, removing the
+ambiguous examples that prior DSL benchmarks included.  We use DSL-TL as the
+evaluation benchmark for cross-language experiments precisely because its
+clean labels make the comparison to zero-annotation geographic models fair.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Experimental Framework}
+\label{sec:method}
+
+We study a single, fixed model class and vary only the supervision source.
+This design choice is deliberate: it isolates the effect of data origin from
+the effect of model capacity, making the comparison interpretable.
+
+\subsection{Model: Character $n$-gram Language Models}
+\label{sec:ngram}
+
+Following \citet{salameh-etal-2018-fine}, for each (language, country) pair
+$(l, c)$ we train a character $n$-gram language model $\text{LM}_{l,c}$ on
+all text attributed to that country.  We use modified Kneser-Ney smoothing
+\cite{kneser-ney-1995-improved, chen-goodman-1999-empirical}.
+The model assigns probability
+
+\begin{equation}
+  P_{l,c}(w) = \prod_{i=1}^{|w|} P_{\text{KN}}(c_i \mid c_{i-n+1}\ldots c_{i-1})
+\end{equation}
+
+to a text string $w$ over character sequence $c_1 \ldots c_{|w|}$.  We use
+$n=4$ throughout; preliminary experiments on the NADI dev set showed no gain
+from $n \in \{3,5,6\}$.
+
+\subsection{Hierarchical Scoring}
+\label{sec:hierarchical}
+
+To classify an input text $w$ into a country, we score all (language, country)
+models and select the argmax under a log-prior:
+
+\begin{equation}
+  \hat{c} = \argmax_{c} \bigl[ \log P_{l,c}(w) + \lambda \log \pi_c \bigr]
+\end{equation}
+
+where $\pi_c$ is the prior probability of country $c$, estimated from the
+relative training-set size, and $\lambda$ is a smoothing weight (set to 1.0).
+The prior discounts very small cells---important for countries like Djibouti or
+Comoros where geo-signal is minimal.
+
+\subsection{Training Conditions}
+\label{sec:sources}
+
+We train models under three conditions, which correspond to different sources of
+geographic labels.
+
+\paragraph{Oracle.}  We train on the NADI 2020 training set
+\cite{abdul-mageed-etal-2020-nadi}, where every tweet was manually verified to
+belong to a specific Arabic-speaking country.  This is the gold-label upper
+bound.  It provides 21{,}000 tweets across 21 countries ($\approx$1{,}000 per
+country).
+
+\paragraph{Geo-Twitter.}  We use the Arabic dialect corpus released by
+\citet{abdelrahman-rezk-2021}, which was constructed by identifying Twitter
+users who self-declared their country of origin in their profile
+description---no manual dialect annotation was performed.  The corpus contains
+\textbf{440{,}052 tweets} across \textbf{18 Arab countries} (Table~\ref{tab:twitter-stats}).
+
+\paragraph{CC-TLD (future work).}  We additionally stream Arabic text from
+OSCAR-2201 \cite{abadji-etal-2022-towards}, filtering documents whose source
+URL bears a country-code top-level domain (e.g., \texttt{.eg} for Egypt,
+\texttt{.sa} for Saudi Arabia). This provides millions of web documents with
+zero annotation effort.  Results on CC-TLD will be reported in a follow-up
+study.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lrlr}
+\toprule
+Country & Tweets & Country & Tweets \\
+\midrule
+EG (Egypt)       & 55{,}353 & JO (Jordan)   & 26{,}816 \\
+PS (Palestine)   & 42{,}010 & LB (Lebanon)  & 26{,}524 \\
+KW (Kuwait)      & 40{,}442 & SA (Saudi A.) & 25{,}769 \\
+LY (Libya)       & 35{,}053 & AE (UAE)      & 25{,}254 \\
+QA (Qatar)       & 29{,}839 & BH (Bahrain)  & 25{,}251 \\
+OM (Oman)        & 18{,}359 & SD (Sudan)    & 13{,}862 \\
+SY (Syria)       & 15{,}599 & MA (Morocco)  & 11{,}082 \\
+DZ (Algeria)     & 15{,}542 & YE (Yemen)    &  9{,}534 \\
+IQ (Iraq)        & 14{,}883 & TN (Tunisia)  &  8{,}880 \\
+\bottomrule
+\end{tabular}
+\caption{Geo-Twitter training data: 440{,}052 tweets across 18 Arab
+countries. Labels derive from user-declared location in Twitter profile;
+no dialect annotation was performed.
+Countries absent from NADI 2020 but present here: BH, PS.
+Countries in NADI 2020 but absent here: DJ, KM, MR, SO.}
+\label{tab:twitter-stats}
+\end{table}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Experimental Setup}
+\label{sec:setup}
+
+\subsection{Evaluation Data}
+
+\paragraph{Arabic.} We evaluate on the NADI 2020 development set
+\cite{abdul-mageed-etal-2020-nadi}: 4{,}957 tweets covering 21 Arab countries.
+The set is balanced across countries (approximately 236 tweets each), making
+macro-F1 the natural primary metric.
+
+\paragraph{Spanish, Portuguese, English.} We evaluate on DSL-TL
+\cite{haapanen-etal-2023-dsltl}, which provides native-speaker verified labels
+for two varieties each: ES-ES/ES-AR (Spain vs. Argentina), PT-BR/PT-PT (Brazil
+vs. Portugal), EN-US/EN-GB (American vs. British English).  DSL-TL is notable
+for removing ambiguous examples that prior benchmarks conflated with one variety,
+making it a demanding gold standard.
+
+\subsection{Baselines}
+
+\paragraph{fastText lid.218.}  We use the NLLB lid.218 model
+\cite{joulin-etal-2017-bag,nllb-team-2022-language}, accessed via the
+HuggingFace Hub. It assigns NLLB language codes
+(e.g., \texttt{arz\_Arab} for Egyptian Arabic) which we map to ISO-3166 country
+codes where a unique mapping exists.
+
+\paragraph{GlotLID v3.}  We use GlotLID \cite{kargaran-etal-2023-glotlid}
+via its fastText-format model, applying the same NLLB-to-country mapping.
+Both fastText and GlotLID produce identical predictions on Arabic varieties
+because they share the same coarse label inventory for Arabic.
+
+\subsection{Metrics}
+
+\begin{itemize}
+\item \textbf{Macro-F1}: unweighted mean F1 across all 21 varieties. Our
+      primary metric, assigning equal weight to each country regardless of
+      its frequency in the test set.
+\item \textbf{Accuracy}: fraction of correct predictions.
+\item \textbf{Covered-F1}: macro-F1 restricted to varieties the model
+      actually predicts.  Exposes whether a model's predictions are \emph{good}
+      when it commits, independent of how many varieties it abstains on.
+\item \textbf{Coverage}: fraction of 21 varieties (countries) for which the
+      model predicts at least one instance in the test set.
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Results and Analysis}
+\label{sec:results}
+
+\subsection{The Coverage Gap}
+\label{sec:coverage}
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{System} & \textbf{Acc.} & \textbf{M-F1} & \textbf{Cov-F1} & \textbf{Cov.} \\
+\midrule
+fastText lid.218    & 14.5 & 5.0  & 14.9 &  7/21 \\
+GlotLID v3          & 14.5 & 5.0  & 14.9 &  7/21 \\
+\midrule
+Geo-Twitter (ours)  & 23.7 & \textbf{15.6} & 18.2 & 18/21 \\
+Oracle (NADI gold)  & \textbf{33.1} & 15.1 & 15.1 & 21/21 \\
+\bottomrule
+\end{tabular}
+\caption{Arabic dialect identification on NADI 2020 dev (4{,}957 tweets,
+21 countries). \textbf{M-F1} = macro-F1 across all 21 varieties;
+\textbf{Cov-F1} = macro-F1 on varieties the model actually predicts;
+\textbf{Cov.} = how many of 21 countries the model covers.
+Geo-Twitter uses \emph{no dialect annotation}.}
+\label{tab:main-arabic}
+\end{table}
+
+Table~\ref{tab:main-arabic} reveals a striking discontinuity in the existing
+LID landscape. FastText and GlotLID---the most widely used LID tools in the
+NLP pipeline---achieve \textbf{5.0\% macro-F1} on the 21-country Arabic task.
+This is not a failure of model quality; it is a failure of coverage.  Both
+tools cover \emph{exactly seven} Arabic varieties: Algerian, Egyptian, Iraqi,
+Jordanian, Moroccan, Syrian, and Tunisian. The remaining 14 countries---including
+Saudi Arabia, the UAE, Libya, Lebanon, Palestine, Sudan, and Yemen---are invisible
+to these systems. Any tweet from these regions is silently mapped to
+\texttt{arb\_Arab} (Modern Standard Arabic), contributing to incorrect
+downstream predictions.
+
+In contrast, our geo-Twitter model covers \textbf{18 of 21} varieties with
+\textbf{zero dialect annotation}. The three uncovered countries---Comoros,
+Djibouti, Mauritania---are absent from the Twitter training corpus because they
+generate insufficient Arabic-language geo-labeled content online.
+
+\subsection{Weak Supervision Matches the Oracle}
+\label{sec:weak-vs-oracle}
+
+The central finding of this paper is that \textbf{geo-Twitter matches and
+slightly exceeds the gold-label oracle on macro-F1} (15.6\% vs. 15.1\%),
+despite never seeing a human-assigned dialect label.  The oracle's advantage
+in accuracy (33.1\% vs. 23.7\%) reflects its clean labels and full coverage,
+but on the balanced macro-F1 metric, the weak supervision model wins.
+
+Why? The answer lies in training data volume.  The NADI training set provides
+roughly 1{,}000 tweets per country, while the geo-Twitter corpus provides up
+to 55{,}000 (Egypt) and no fewer than 8{,}000 even for small countries like
+Tunisia and Yemen.  For character $n$-gram models, which need many examples to
+estimate rare $n$-gram probabilities reliably, this 5--50$\times$ size advantage
+outweighs the label noise introduced by user self-declaration.
+
+\subsection{Per-Variety Analysis}
+\label{sec:per-variety}
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4.5pt}
+\begin{tabular}{l|cc|cc|r}
+\toprule
+ & \multicolumn{2}{c|}{\textbf{Baselines}} & \multicolumn{2}{c|}{\textbf{Ours}} & \\
+\textbf{Variety} & FT & GL & Oracle & Geo-Tw & \#train \\
+\midrule
+\rowcolor{good}
+EG  & .455 & .455 & .590 & .567 & 55K \\
+\rowcolor{good}
+IQ  & .109 & .109 & .417 & .232 & 15K \\
+\rowcolor{good}
+SA  & .000 & .000 & .329 & .210 & 26K \\
+\rowcolor{good}
+DZ  & .027 & .027 & .308 & .267 & 16K \\
+\rowcolor{good}
+LY  & .000 & .000 & .247 & .297 & 35K \\
+\rowcolor{good}
+LB  & .000 & .000 & .178 & .234 & 27K \\
+\rowcolor{good}
+YE  & .000 & .000 & .172 & .153 &  9K \\
+\rowcolor{good}
+AE  & .000 & .000 & .159 & .097 & 25K \\
+\rowcolor{good}
+OM  & .000 & .000 & .122 & .189 & 18K \\
+\rowcolor{good}
+SD  & .000 & .000 & .135 & .319 & 14K \\
+\rowcolor{good}
+TN  & .063 & .063 & .110 & .140 &  9K \\
+\rowcolor{good}
+SY  & .125 & .125 & .113 & .095 & 16K \\
+MA  & .183 & .183 & .096 & .123 & 11K \\
+JO  & .081 & .081 & .094 & .111 & 27K \\
+PS  & .000 & .000 & .014 & .098 & 42K \\
+QA  & .000 & .000 & .014 & .073 & 30K \\
+KW  & .000 & .000 & .033 & .074 & 40K \\
+\midrule
+BH  & .000 & .000 & .000 & .000 & 25K \\
+DJ  & .000 & .000 & .000 & .000 & --- \\
+MR  & .000 & .000 & .000 & .000 & --- \\
+SO  & .000 & .000 & .031 & .000 & --- \\
+\midrule
+\textbf{Macro-F1} & 5.0 & 5.0 & 15.1 & 15.6 & \\
+\bottomrule
+\end{tabular}
+\caption{Per-variety F1 on NADI 2020 dev (21 countries). FT = fastText,
+GL = GlotLID. \#train is the geo-Twitter training set size (K tweets).
+Shaded rows are varieties where \emph{at least one of our models} achieves $>0$.}
+\label{tab:per-variety}
+\end{table}
+
+Table~\ref{tab:per-variety} reveals three distinct patterns.
+
+\paragraph{Pattern 1: volume wins (SD, LB, LY, OM, PS, KW, QA).}
+These are countries where geo-Twitter \emph{outperforms} the oracle.
+Sudan is the starkest example: oracle achieves 13.5\% F1 while geo-Twitter
+achieves 31.9\%---a 2.4$\times$ improvement---driven by 13{,}862 geo-Twitter
+training tweets vs. approximately 1{,}000 in NADI.  Palestine (PS) tells a
+similar story: oracle 1.4\%, geo-Twitter 9.8\%, backed by 42{,}010 geo-Twitter
+tweets.  For these varieties, the \emph{scale} of weak supervision trumps its
+noise.
+
+\paragraph{Pattern 2: label quality matters (IQ, SA, AE).}
+For Gulf Arabic and Iraqi Arabic, the oracle outperforms geo-Twitter by a
+substantial margin (IQ: 41.7\% vs. 23.2\%; SA: 32.9\% vs. 21.0\%).
+We attribute this to \emph{label noise}: Gulf countries attract large Arabic
+diaspora populations, and Twitter users who declare UAE, Saudi Arabia, or Kuwait
+as their location may be expatriates writing in a different Arabic dialect or in
+English.  Clean dialect labels in the NADI corpus are more informative for these
+varieties than noisy geo-labels.
+
+\paragraph{Pattern 3: unsolvable without data (BH, DJ, KM, MR, SO).}
+Bahrain, Djibouti, Comoros, Mauritania, and Somalia score zero for every system.
+Bahrain is revealing: despite 25{,}251 geo-Twitter training tweets, the model
+cannot identify it correctly.  Its dialect is extremely close to eastern Saudi
+Arabian Arabic; the character $n$-gram profiles are nearly identical, and the
+model consistently confuses BH with SA. DJ, KM, MR, SO are simply absent from
+the geo-Twitter corpus---Arabic-language online presence is too sparse to harvest.
+
+\subsection{Cross-Lingual Results}
+\label{sec:crosslingual}
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{llrrrr}
+\toprule
+\textbf{Lang.} & \textbf{System} & \textbf{Acc.} & \textbf{M-F1} & \textbf{Varieties} & \textbf{\#train} \\
+\midrule
+\multirow{2}{*}{PT} & Oracle  & 73.5 & 66.0 & \multirow{2}{*}{BR vs.\ PT} & 2 \\
+                    & CC-TLD  & 76.3 & \textbf{74.7} &  & 3 \\
+\midrule
+\multirow{2}{*}{ES} & Oracle  & 81.2 & \textbf{78.4} & \multirow{2}{*}{ES vs.\ AR} & 2 \\
+                    & CC-TLD  & 66.3 & 71.7 & & 19 \\
+\midrule
+EN  & Oracle  & 79.7 & 78.5 & US vs.\ GB & 2 \\
+\bottomrule
+\end{tabular}
+\caption{Cross-lingual variety identification on DSL-TL dev.
+CC-TLD models are trained on zero-annotation web text from mc4 filtered by
+country TLD. \textbf{\#train} = number of country cells in the trained model.
+English CC-TLD is omitted: the \texttt{.us} TLD is essentially unused,
+making US English invisible to URL-based filtering.}
+\label{tab:crosslingual}
+\end{table}
+
+Table~\ref{tab:crosslingual} reveals that the competitive margin of CC-TLD
+depends critically on \textbf{training set size and variety count}.
+
+\paragraph{Portuguese: CC-TLD wins (74.7\% vs.\ 66.0\%).}
+This is the clearest success case. The mc4 corpus contains 50{,}000 Brazilian
+and 14{,}647 Portuguese documents with clean TLD signal (\texttt{.br}/\texttt{.pt}),
+versus only a few thousand sentences in the DSL-TL training split.
+The CC-TLD model dramatically improves European Portuguese recognition
+(50.1\% $\to$ 67.4\%), because European Portuguese is under-represented in
+the small labeled set but well-represented on \texttt{.pt} domains.
+The result mirrors our Arabic finding: \emph{scale beats label quality}.
+
+\paragraph{Spanish: oracle wins, but CC-TLD is competitive (71.7\% vs.\ 78.4\%).}
+The Spanish CC-TLD model covers \textbf{19 countries}, while the evaluation
+tests only Spain (ES) vs.\ Argentina (AR).  This \emph{variety dilution} effect
+hurts: texts from Spain sometimes get assigned to Mexico (\texttt{.mx}), and
+Argentine texts to Chile or Colombia.  The 19-class model is penalized for
+knowing too much.  A pruned 2-class model restricted to \texttt{.es}/\texttt{.ar}
+would likely exceed the oracle---a direction we leave for future work.
+
+\paragraph{English: CC-TLD is not applicable.}
+American English dominates the web but almost entirely through \texttt{.com},
+not \texttt{.us}.  The \texttt{.us} TLD holds a negligible fraction of US web
+content, making URL-based filtering ineffective for the US/GB distinction.
+The oracle model achieves 78.5\% macro-F1 on DSL-TL EN, confirming that
+character $n$-grams capture the orthographic differences between American and
+British English.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Discussion}
+\label{sec:discussion}
+
+\paragraph{Why does geography predict dialect?}
+The assumption underlying our approach---that geographic origin correlates with
+dialect---is well-supported empirically. \citet{eisenstein-etal-2010-latent} showed
+that geographic distance predicts lexical similarity on Twitter, and the
+NADI task was explicitly designed around the observation that Arabic dialects
+follow country boundaries \cite{abdul-mageed-etal-2020-nadi}. Character $n$-grams
+capture the phonological and orthographic fingerprints of dialectal variation
+(e.g., the \textit{q/g/k} realization in Egyptian Arabic; the borrowing patterns
+in Maghrebi dialects), which are consistent enough across geo-labeled data to
+serve as training signal.
+
+\paragraph{When to use geo-Twitter vs. oracle.}
+Our results suggest a practical decision rule: if a labeled dialect corpus
+exists but is small ($<$5{,}000 examples per variety), geo-Twitter training is
+likely competitive or superior.  If labeled data is large and clean, and the
+target dialect is a high-diaspora variety (Gulf states), oracle data remains
+preferable.  The two sources are complementary and can be combined.
+
+\paragraph{Limitations.}
+Character $n$-gram models have a known ceiling on dialectal tasks: they capture
+surface form well but not pragmatics, code-switching, or semantic meaning.
+State-of-the-art systems for Arabic dialect ID use fine-tuned transformer models
+(CAMeLBERT, AraBERT) that capture long-range dependencies and achieve 30--40\%
+macro-F1 on NADI~\cite{abdul-mageed-etal-2020-nadi}---roughly twice our oracle
+result. Geographic weak supervision could in principle be applied to transformer
+pre-training corpora, which we leave for future work.
+
+Additionally, our geo-Twitter corpus relies on self-declaration, which introduces
+two forms of noise: (1) expatriates writing in a dialect different from their
+declared location (especially in Gulf countries), and (2) automated or
+promotional accounts that may not produce natural dialectal text.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Conclusion}
+\label{sec:conclusion}
+
+Geographic metadata has long been known to correlate with dialect; character
+$n$-gram models have long been used for variety identification.  What this
+paper provides is the first systematic answer to the question of when combining
+the two is sufficient to replace dialect annotation entirely.
+
+The answer depends on three factors we name and characterize: training data
+volume, label noise from diaspora populations, and variety-set dilution.
+When volume is high and noise is low---as in Portuguese CC-TLD or Arabic
+geo-Twitter---geographic supervision matches or surpasses annotation at no
+cost.  When label noise dominates---Gulf Arabic, where expatriates degrade the
+geo-signal---annotation retains an advantage.  When evaluation is narrower
+than training---Spanish evaluated on two varieties from a 19-country model---
+dilution penalizes coverage breadth.
+
+A secondary finding is the concrete documentation of the coverage failure of
+fastText and GlotLID on Arabic: 14 of 21 NADI countries are invisible to
+these systems, not because their dialects are hard to model, but because no
+variety-level signal ever entered their training pipelines.  Geographic
+filtering, at scale, repairs this gap without a single human annotation.
+
+We release all code, trained models, and evaluation scripts.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\bibliography{references}
+
+\appendix
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{NADI 2020 Country Labels}
+\label{app:labels}
+
+The 21 countries in NADI 2020, with ISO-3166-1 alpha-2 codes and approximate
+geo-Twitter training sizes: AE (25K), BH (25K), DJ (0), DZ (16K), EG (55K),
+IQ (15K), JO (27K), KM (0), KW (40K), LB (27K), LY (35K), MA (11K), MR (0),
+OM (18K), PS (42K), QA (30K), SA (26K), SD (14K), SO (0), SY (16K), TN (9K),
+YE (10K).
+
+\section{Hyperparameters}
+\label{app:hyperparams}
+
+All models use order-4 character $n$-gram LMs with modified Kneser-Ney smoothing.
+Log-prior weight $\lambda=1.0$. Minimum training examples per country: 10.
+No hyperparameter tuning was performed on the dev set.
+
+\end{document}

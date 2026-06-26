@@ -1,0 +1,13 @@
+# Core (no external deps for n-gram models themselves)
+# Python >= 3.10 required (uses match/case-free but uses | union types)
+
+# Baselines
+fasttext-wheel>=0.9.2        # fastText LID models (lid.218, GlotLID)
+huggingface-hub>=0.20.0      # auto-download model weights
+
+# CC-TLD pipeline (only needed for --source cc_tld)
+datasets>=2.14.0             # HuggingFace Datasets, streaming OSCAR
+tldextract>=5.0.0            # optional: URL parsing (cc_tld.py uses regex instead)
+
+# Optional: faster evaluation
+tqdm>=4.60.0                 # progress bars (not used yet, easy to add)
